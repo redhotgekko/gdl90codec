@@ -1,3 +1,4 @@
+![Rust workflow](https://github.com/redhotgekko/gdl90codec/actions/workflows/rust.yml/badge.svg)
 
 *Note: This project is still under construction!*
 
