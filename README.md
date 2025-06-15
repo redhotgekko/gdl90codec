@@ -8,6 +8,17 @@ This is a partial implementation of the [FAA GDL90 Specification](https://www.fa
 
 The intent is for this project to eventually be able to encode and decode a reasonably full set of the possible messages.
 
+## Dependency
+
+If you would like to try this project, you can do so by adding it to your Cargo.toml file.
+
+_Note that this project is under development, so the dependency below will change without notice_
+
+```
+[dependencies]
+gdl90codec = { git = "https://github.com/redhotgekko/gdl90codec.git" }
+```
+
 ## Example encode:
 ```rust
 use gdl90codec::heartbeat::HeartBeat;
