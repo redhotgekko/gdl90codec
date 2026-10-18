@@ -2,7 +2,7 @@
 //!
 //! Reference: <https://www.foreflight.com/connect/spec/>
 use deku::prelude::*;
-use std::str::{from_utf8, Utf8Error};
+use std::str::Utf8Error;
 
 const ID_SUB_ID: u8 = 0;
 const AHRS_SUB_ID: u8 = 1;
@@ -29,26 +29,18 @@ pub struct IDMessage {
 
 impl IDMessage {
     pub fn get_device_name(&self) -> Result<String, Utf8Error> {
-        let mut end_idx = self.device_name.len();
-        for (idx, b) in self.device_name.iter().enumerate() {
-            if *b == 0 {
-                end_idx = idx;
-                break;
-            }
-        }
-        from_utf8(&self.device_name[0..end_idx]).map(|s| s.to_owned())
+        nul_terminated(&self.device_name)
     }
 
     pub fn get_device_long_name(&self) -> Result<String, Utf8Error> {
-        let mut end_idx = self.device_name.len();
-        for (idx, b) in self.device_name.iter().enumerate() {
-            if *b == 0 {
-                end_idx = idx;
-                break;
-            }
-        }
-        from_utf8(&self.device_long_name[0..end_idx]).map(|s| s.to_owned())
+        nul_terminated(&self.device_long_name)
     }
+}
+
+/// Decode a fixed-size, optionally NUL-terminated UTF-8 field
+fn nul_terminated(data: &[u8]) -> Result<String, Utf8Error> {
+    let text: Vec<u8> = data.iter().copied().take_while(|b| *b != 0).collect();
+    String::from_utf8(text).map_err(|e| e.utf8_error())
 }
 
 /// Attitude and heading reference system (AHRS) sub message (ID 0x01)
@@ -111,7 +103,9 @@ impl TryFrom<&[u8]> for ExtendedX65SubMessage {
 }
 
 fn set_sub_id(mut payload: Vec<u8>, message_id: u8) -> Vec<u8> {
-    payload[0] = message_id;
+    if let Some(sub_id) = payload.first_mut() {
+        *sub_id = message_id;
+    }
     payload
 }
 

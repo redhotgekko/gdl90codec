@@ -15,6 +15,9 @@ use std::iter::once;
 
 const CRC16_TABLE: [u16; 256] = create_crc_table();
 
+// Evaluated at compile time, so any overflow or out-of-bounds index here is a
+// build error rather than a runtime panic.
+#[allow(clippy::indexing_slicing, clippy::arithmetic_side_effects)]
 const fn create_crc_table() -> [u16; 256] {
     let mut table = [0_u16; 256];
 
@@ -121,7 +124,7 @@ fn build_message(body: &[u8]) -> Result<GDL90Message, GDL90Error> {
     match &data[..] {
         [message_id, payload @ .., checksum1, checksum2] => {
             let crc = [*checksum1, *checksum2];
-            let actual_checksum = checksum(data[..data.len() - 2].iter());
+            let actual_checksum = checksum(once(message_id).chain(payload.iter()));
             let expected_checksum = u16::from_le_bytes(crc);
 
             if actual_checksum != expected_checksum {
@@ -144,7 +147,10 @@ fn build_message(body: &[u8]) -> Result<GDL90Message, GDL90Error> {
 fn checksum<'a>(data: impl Iterator<Item = &'a u8>) -> u16 {
     let mut crc: u16 = 0;
     for &byte in data {
-        crc = CRC16_TABLE[(crc >> 8) as usize] ^ ((crc << 8) ^ (byte as u16));
+        let [high, low] = crc.to_be_bytes();
+        #[allow(clippy::indexing_slicing)] // a u8 index always fits a 256-entry table
+        let entry = CRC16_TABLE[usize::from(high)];
+        crc = entry ^ u16::from_be_bytes([low, byte]);
     }
     crc
 }

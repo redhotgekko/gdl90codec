@@ -14,9 +14,10 @@ pub struct OwnershipGeometricAltitude {
 }
 
 impl OwnershipGeometricAltitude {
-    /// Ownship Geo Altitude
+    /// Ownship Geo Altitude in feet (signed 16-bit value, 5 ft resolution)
+    #[allow(clippy::arithmetic_side_effects)] // i16 * 5 always fits in an i32
     pub fn get_ownship_geo_altitude(&self) -> i32 {
-        (self.ownship_geo_altitude * 5) as i32
+        i32::from(self.ownship_geo_altitude as i16) * 5
     }
 
     /// Ownship Geo Altitude

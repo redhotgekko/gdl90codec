@@ -77,36 +77,40 @@ impl Report {
         lat_long_u32_to_f32(self.longitude)
     }
 
+    #[allow(clippy::arithmetic_side_effects)] // 12-bit field: result is within -1000..=101,375
     pub fn get_altitude(&self) -> i32 {
-        (self.altitude as i32 * 25) - 1000
+        (i32::from(self.altitude & 0xFFF) * 25) - 1000
     }
 
-    pub fn get_traffic_alert_status(&self) -> TrafficAlertStatus {
-        TrafficAlertStatus::VARIANTS[self.traffic_alert_status as usize]
+    pub fn get_traffic_alert_status(&self) -> Option<TrafficAlertStatus> {
+        variant(TrafficAlertStatus::VARIANTS, self.traffic_alert_status)
     }
 
-    pub fn get_address_type(&self) -> AddressType {
-        AddressType::VARIANTS[self.address_type as usize]
+    pub fn get_address_type(&self) -> Option<AddressType> {
+        variant(AddressType::VARIANTS, self.address_type)
     }
 
-    pub fn get_heading_type(&self) -> HeadingType {
-        HeadingType::VARIANTS[self.heading_type as usize]
+    pub fn get_heading_type(&self) -> Option<HeadingType> {
+        variant(HeadingType::VARIANTS, self.heading_type)
     }
 
-    pub fn get_report_type(&self) -> ReportType {
-        ReportType::VARIANTS[self.report_type as usize]
+    pub fn get_report_type(&self) -> Option<ReportType> {
+        variant(ReportType::VARIANTS, self.report_type)
     }
 
-    pub fn get_flight_stage(&self) -> FlightStage {
-        FlightStage::VARIANTS[self.flight_stage as usize]
+    pub fn get_flight_stage(&self) -> Option<FlightStage> {
+        variant(FlightStage::VARIANTS, self.flight_stage)
     }
 
-    pub fn get_navigation_integrity_category(&self) -> NIC {
-        NIC::VARIANTS[self.navigation_integrity_category as usize]
+    pub fn get_navigation_integrity_category(&self) -> Option<NIC> {
+        variant(NIC::VARIANTS, self.navigation_integrity_category)
     }
 
-    pub fn get_navigation_accuracy_category_for_position(&self) -> NACp {
-        NACp::VARIANTS[self.navigation_accuracy_category_for_position as usize]
+    pub fn get_navigation_accuracy_category_for_position(&self) -> Option<NACp> {
+        variant(
+            NACp::VARIANTS,
+            self.navigation_accuracy_category_for_position,
+        )
     }
 
     pub fn get_horizontal_velocity(&self) -> Option<u16> {
@@ -137,26 +141,33 @@ impl Report {
         }
     }
 
+    /// Vertical velocity in feet per minute, `None` when unavailable (0x800)
+    /// or when the raw value is too large to represent in an `i16`.
+    /// Valid data is within ±510 (±32,640 fpm); larger values are reserved.
     pub fn get_vertical_velocity(&self) -> Option<i16> {
         if self.vertical_velocity == 0x800 {
             return None;
         }
 
         let value = if self.vertical_velocity & 0x800 != 0 {
-            (self.vertical_velocity as i16) | !0x0FFF // sign-extend to 32 bits
+            (self.vertical_velocity as i16) | !0x0FFF // sign-extend to 16 bits
         } else {
-            self.vertical_velocity as i16
+            self.vertical_velocity as i16 & 0x0FFF
         };
 
-        Some(value * 64)
+        value.checked_mul(64)
     }
 
-    pub fn get_emitter_category(&self) -> EmitterCategory {
-        EmitterCategory::VARIANTS[self.emitter_category as usize]
+    /// Emitter category, `None` for values beyond the defined table (40-255).
+    pub fn get_emitter_category(&self) -> Option<EmitterCategory> {
+        variant(EmitterCategory::VARIANTS, self.emitter_category)
     }
 
-    pub fn get_emergency_priority_code(&self) -> EmergencyPriorityCode {
-        EmergencyPriorityCode::VARIANTS[self.emergency_priority_code as usize]
+    pub fn get_emergency_priority_code(&self) -> Option<EmergencyPriorityCode> {
+        variant(
+            EmergencyPriorityCode::VARIANTS,
+            self.emergency_priority_code,
+        )
     }
 
     pub fn set_emergency_priority_code(&mut self, value: EmergencyPriorityCode) {
@@ -203,8 +214,9 @@ impl Report {
         self.traffic_alert_status = value.ordinal() as u8;
     }
 
+    /// Altitude in feet, clamped to the encodable range (-1000 to 101,350 ft).
     pub fn set_altitude(&mut self, value: i32) {
-        self.altitude = ((value + 1000) / 25) as u16;
+        self.altitude = (value.saturating_add(1000) / 25).clamp(0, 0xFFE) as u16;
     }
 
     pub fn set_latitude(&mut self, value: f32) {
@@ -216,14 +228,21 @@ impl Report {
     }
 }
 
+/// Look up an enum variant by its wire value, `None` if it is out of range.
+fn variant<T: Copy>(variants: &[T], value: u8) -> Option<T> {
+    variants.get(usize::from(value)).copied()
+}
+
 fn lat_long_u32_to_f32(value: u32) -> f32 {
+    let value = value & 0xFFFFFF;
     let fraction = if value & 0x800000 != 0 {
         (value as i32) | !0xFFFFFF // sign-extend to 32 bits
     } else {
         value as i32
     };
 
-    ((fraction * 45) as f32) / ((1 << 21) as f32)
+    // |fraction| < 2^23, so multiplying by 45 cannot overflow
+    (fraction.wrapping_mul(45) as f32) / ((1 << 21) as f32)
 }
 
 fn lat_long_f32_to_u32(value: f32) -> u32 {
@@ -372,6 +391,7 @@ pub enum AddressType {
     Reserved7,
     Reserved8,
     Reserved9,
+    Reserved10,
 }
 
 #[derive(Ordinalize, Debug, PartialEq, Clone, Copy)]
@@ -417,29 +437,35 @@ mod test {
         assert_eq!(report.get_callsign().unwrap(), "TEST    ".to_owned());
         assert_eq!(
             report.get_traffic_alert_status(),
-            TrafficAlertStatus::NoAlert
+            Some(TrafficAlertStatus::NoAlert)
         );
-        assert_eq!(report.get_address_type(), AddressType::ADSBWithICAOAddress);
+        assert_eq!(
+            report.get_address_type(),
+            Some(AddressType::ADSBWithICAOAddress)
+        );
         assert_eq!(report.participant_address, 0x40AABB); // Fake address
         assert_eq!(report.get_latitude(), 51.406617164612);
         assert_eq!(report.get_longitude(), -0.43159961700439);
         assert_eq!(report.get_altitude(), 7975);
-        assert_eq!(report.get_flight_stage(), FlightStage::Airborne);
-        assert_eq!(report.get_report_type(), ReportType::ReportIsUpdated);
+        assert_eq!(report.get_flight_stage(), Some(FlightStage::Airborne));
+        assert_eq!(report.get_report_type(), Some(ReportType::ReportIsUpdated));
         assert_eq!(report.navigation_integrity_category, 8);
         assert_eq!(report.navigation_accuracy_category_for_position, 9);
         assert_eq!(report.get_horizontal_velocity(), Some(260));
         assert_eq!(report.get_vertical_velocity(), Some(-64));
         assert_eq!(report.get_track_heading(), 25.3125);
-        assert_eq!(report.get_navigation_integrity_category(), NIC::Lt0_1NM);
+        assert_eq!(
+            report.get_navigation_integrity_category(),
+            Some(NIC::Lt0_1NM)
+        );
         assert_eq!(
             report.get_navigation_accuracy_category_for_position(),
-            NACp::HFOMlt30mAndVFOMlt45m
+            Some(NACp::HFOMlt30mAndVFOMlt45m)
         );
-        assert_eq!(report.get_emitter_category(), EmitterCategory::Heavy);
+        assert_eq!(report.get_emitter_category(), Some(EmitterCategory::Heavy));
         assert_eq!(
             report.get_emergency_priority_code(),
-            EmergencyPriorityCode::NoEmergency
+            Some(EmergencyPriorityCode::NoEmergency)
         );
 
         let encoded = report.to_bytes().unwrap();
@@ -475,7 +501,7 @@ mod test {
         let mut report = Report::default();
         report.set_traffic_alert_status(TrafficAlertStatus::Reserved8);
         assert_eq!(
-            TrafficAlertStatus::Reserved8,
+            Some(TrafficAlertStatus::Reserved8),
             report.get_traffic_alert_status()
         );
     }
@@ -484,27 +510,30 @@ mod test {
     fn test_address_type() {
         let mut report = Report::default();
         report.set_address_type(AddressType::Reserved8);
-        assert_eq!(AddressType::Reserved8, report.get_address_type());
+        assert_eq!(Some(AddressType::Reserved8), report.get_address_type());
     }
 
     #[test]
     fn test_heading_type() {
         let mut report = Report::default();
         report.set_heading_type(HeadingType::TrueTrackAngle);
-        assert_eq!(HeadingType::TrueTrackAngle, report.get_heading_type());
+        assert_eq!(Some(HeadingType::TrueTrackAngle), report.get_heading_type());
     }
 
     #[test]
     fn test_report_type() {
         let mut report = Report::default();
         report.set_report_type(ReportType::ReportIsExtrapolated);
-        assert_eq!(ReportType::ReportIsExtrapolated, report.get_report_type());
+        assert_eq!(
+            Some(ReportType::ReportIsExtrapolated),
+            report.get_report_type()
+        );
     }
 
     #[test]
     fn test_flight_stage() {
         let mut report = Report::default();
         report.set_flight_stage(FlightStage::Airborne);
-        assert_eq!(FlightStage::Airborne, report.get_flight_stage());
+        assert_eq!(Some(FlightStage::Airborne), report.get_flight_stage());
     }
 }
