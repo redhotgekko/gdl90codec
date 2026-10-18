@@ -44,6 +44,7 @@ pub mod error;
 pub mod extended;
 pub mod geometric;
 pub mod heartbeat;
+pub mod initialization;
 pub mod message;
 pub mod payload;
 pub mod report;

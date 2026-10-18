@@ -4,9 +4,10 @@ use crate::{
     extended::ExtendedX65SubMessage,
     geometric::OwnershipGeometricAltitude,
     heartbeat::HeartBeat,
+    initialization::Initialization,
     payload::{
-        Payload, EXTENDED_X65, HEARTBEAT_ID, OWNERSHIP_GEOMETRIC_ALTITUDE, OWNERSHIP_REPORT_ID,
-        TRAFFIC_REPORT_ID,
+        Payload, EXTENDED_X65, HEARTBEAT_ID, INITIALIZATION_ID, OWNERSHIP_GEOMETRIC_ALTITUDE,
+        OWNERSHIP_REPORT_ID, TRAFFIC_REPORT_ID,
     },
     report::Report,
 };
@@ -73,6 +74,9 @@ impl GDL90Message {
     pub fn get_payload(&self) -> Result<Payload, GDL90Error> {
         match self.message_id {
             HEARTBEAT_ID => Ok(Payload::HeartBeat(HeartBeat::try_from(&self.data[..])?)),
+            INITIALIZATION_ID => Ok(Payload::Initialization(Initialization::try_from(
+                &self.data[..],
+            )?)),
             OWNERSHIP_REPORT_ID => Ok(Payload::OwnershipReport(Report::try_from(&self.data[..])?)),
             TRAFFIC_REPORT_ID => Ok(Payload::TrafficReport(Report::try_from(&self.data[..])?)),
             OWNERSHIP_GEOMETRIC_ALTITUDE => Ok(Payload::OwnershipGeometricAltitude(
